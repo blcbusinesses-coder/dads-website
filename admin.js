@@ -543,15 +543,11 @@
         const label = document.getElementById('adminSaveBtnLabel');
 
         btn.disabled = true;
-        label.textContent = 'Pushing to GitHub…';
+        label.textContent = 'Saving…';
 
-        // 1. Build clean full HTML string
-        const fullHTML = buildFullHTML();
-
-        // 2. Also save a local draft so admin's own machine shows edits instantly
+        // Save a local draft
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildContentSnapshot())); } catch (e) { }
 
-        // 3. Push to GitHub via Contents API
         try {
             const apiBase = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.file}`;
             const headers = {
@@ -560,18 +556,68 @@
                 'Content-Type': 'application/json'
             };
 
-            // Get current file SHA (required for update)
+            // Step 1: Fetch the CLEAN index.html straight from GitHub
+            // (avoids capturing Vercel-injected analytics scripts from the live DOM)
+            label.textContent = 'Fetching source…';
             const getRes = await fetch(`${apiBase}?ref=${GH.branch}`, { headers });
             if (!getRes.ok) {
                 const err = await getRes.json();
-                throw new Error(err.message || `GitHub GET failed: ${getRes.status}`);
+                if (getRes.status === 401 || getRes.status === 403) clearGitHubToken();
+                throw new Error(err.message || `GitHub fetch failed (${getRes.status})`);
             }
-            const { sha } = await getRes.json();
+            const fileData = await getRes.json();
+            const sha = fileData.sha;
 
-            // Encode content as base64
-            const encoded = btoa(unescape(encodeURIComponent(fullHTML)));
+            // Decode base64 → string (GitHub returns base64-encoded content)
+            const cleanSource = decodeURIComponent(
+                escape(atob(fileData.content.replace(/[\r\n]/g, '')))
+            );
 
-            // Commit the updated file
+            // Step 2: Parse the clean source into a real document
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(cleanSource, 'text/html');
+
+            // Step 3: Surgically replace each section's content with what the admin edited
+            ['hero', 'about', 'services', 'approach', 'safety', 'contact'].forEach(id => {
+                const liveEl = document.getElementById(id);
+                const cleanEl = doc.getElementById(id);
+                if (liveEl && cleanEl) {
+                    cleanEl.innerHTML = cleanHTML(liveEl.innerHTML);
+                } else if (!liveEl && cleanEl) {
+                    cleanEl.remove(); // admin deleted this section
+                }
+            });
+
+            // Update footer
+            const liveFooter = document.querySelector('footer');
+            const cleanFooter = doc.querySelector('footer');
+            if (liveFooter && cleanFooter) cleanFooter.innerHTML = cleanHTML(liveFooter.innerHTML);
+
+            // Update nav logo text
+            const liveNav = document.querySelector('.nav__logo');
+            const cleanNav = doc.querySelector('.nav__logo');
+            if (liveNav && cleanNav) cleanNav.innerHTML = liveNav.innerHTML;
+
+            // Re-insert any new custom sections
+            document.querySelectorAll('section[id^="custom-section-"]').forEach(liveSec => {
+                if (doc.getElementById(liveSec.id)) return;
+                const sec = doc.createElement('section');
+                sec.className = liveSec.className.replace('adm-new-section', '').trim();
+                sec.id = liveSec.id;
+                sec.innerHTML = cleanHTML(liveSec.innerHTML);
+                const prevId = liveSec.previousElementSibling?.id;
+                const anchor = prevId ? doc.getElementById(prevId) : null;
+                if (anchor) anchor.insertAdjacentElement('afterend', sec);
+                else doc.querySelector('footer')?.insertAdjacentElement('beforebegin', sec);
+            });
+
+            // Step 4: Serialize the surgically-updated clean document
+            const updatedHTML = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+
+            // Step 5: Base64-encode and commit back to GitHub
+            label.textContent = 'Pushing to GitHub…';
+            const encoded = btoa(unescape(encodeURIComponent(updatedHTML)));
+
             const putRes = await fetch(apiBase, {
                 method: 'PUT',
                 headers,
@@ -585,19 +631,15 @@
 
             if (!putRes.ok) {
                 const err = await putRes.json();
-                // Token might be wrong — clear it so next save re-prompts
-                if (putRes.status === 401 || putRes.status === 403) {
-                    clearGitHubToken();
-                    throw new Error('GitHub token is invalid or expired. Please re-enter it next save.');
-                }
-                throw new Error(err.message || `GitHub PUT failed: ${putRes.status}`);
+                if (putRes.status === 401 || putRes.status === 403) clearGitHubToken();
+                throw new Error(err.message || `GitHub commit failed (${putRes.status})`);
             }
 
             // Success!
             hasUnsavedChanges = false;
             label.textContent = 'Saved ✓  Live in ~60s';
             btn.style.background = '#2d6a4f';
-            showToast('✓ Saved to GitHub! Changes will be live on the website in about 60 seconds.');
+            showToast('✓ Saved! Changes will be live on the website in about 60 seconds.');
             setTimeout(() => {
                 label.textContent = 'Save Changes';
                 btn.style.background = '';
@@ -607,7 +649,7 @@
         } catch (err) {
             console.error('GitHub save error:', err);
             btn.style.background = '#c45c5c';
-            label.textContent = 'Save Failed';
+            label.textContent = 'Save Failed ✕';
             showToast(`⚠ ${err.message}`);
             setTimeout(() => {
                 label.textContent = 'Save Changes';
@@ -616,6 +658,7 @@
             }, 4000);
         }
     }
+
 
     /* Build the complete, clean index.html string to push to GitHub */
     function buildFullHTML() {
