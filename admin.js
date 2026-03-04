@@ -664,31 +664,57 @@
 
         const modal = document.createElement('div');
         modal.id = 'adminGitHubModal';
+        // Apply critical layout styles inline — don't rely on any CSS class
+        Object.assign(modal.style, {
+            position: 'fixed', inset: '0', zIndex: '2147483647',
+            display: 'block', fontFamily: 'Inter, Helvetica Neue, sans-serif'
+        });
+
         modal.innerHTML = `
-          <div class="adm-modal__backdrop" id="ghModalBackdrop"></div>
-          <div class="adm-modal__box adm-gh-box">
-            <button class="adm-modal__close" id="ghModalClose">✕</button>
-            <div class="adm-modal__logo">
-              <span class="adm-modal__logo-name">GitHub Setup</span>
-              <span class="adm-modal__logo-tagline">One-time connection</span>
+          <div id="ghModalBackdrop" style="position:absolute;inset:0;background:rgba(10,10,20,0.78);backdrop-filter:blur(8px)"></div>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                      background:#fff;padding:48px 44px;width:90%;max-width:460px;
+                      box-shadow:0 32px 80px rgba(0,0,0,0.28);animation:modalIn .3s ease;
+                      text-align:left;box-sizing:border-box">
+            <button id="ghModalClose" style="position:absolute;top:14px;right:14px;background:none;border:none;
+                    font-size:1rem;cursor:pointer;color:#9a9a9a;padding:4px 8px">✕</button>
+
+            <div style="text-align:center;margin-bottom:20px">
+              <div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:1.25rem;color:#1a1a2e">GitHub Setup</div>
+              <div style="font-size:0.6rem;letter-spacing:.22em;text-transform:uppercase;color:#c9a96e">One-time connection</div>
             </div>
-            <h2 class="adm-modal__title">Connect to GitHub</h2>
-            <p class="adm-modal__hint" style="max-width:100%">
-              To save changes for <strong>everyone</strong>, this site needs a GitHub token to push updates to your repository.
+
+            <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:1.55rem;font-weight:400;
+                       color:#1a1a2e;margin-bottom:10px;text-align:center">Connect to GitHub</h2>
+            <p style="font-size:.85rem;color:#6b6b6b;margin-bottom:20px;text-align:center">
+              So your edits go live for <strong style="color:#1a1a2e">everyone</strong>, paste your GitHub token below.
             </p>
-            <ol class="adm-gh-steps">
-              <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" class="adm-gh-link">github.com/settings/tokens/new</a></li>
-              <li>Name it <strong>Dad Website</strong></li>
-              <li>Check the <strong>repo</strong> scope</li>
-              <li>Click <strong>Generate token</strong>, then copy it</li>
+
+            <ol style="padding-left:20px;margin-bottom:20px;font-size:.82rem;color:#6b6b6b;line-height:2">
+              <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank"
+                  style="color:#c9a96e;text-decoration:underline">github.com/settings/tokens/new</a></li>
+              <li>Name it <strong style="color:#1a1a2e">Dad Website</strong></li>
+              <li>Check the <strong style="color:#1a1a2e">repo</strong> scope checkbox</li>
+              <li>Click <strong style="color:#1a1a2e">Generate token</strong> → copy it</li>
             </ol>
-            <div class="adm-modal__field">
-              <input type="password" id="ghTokenInput" class="adm-modal__input"
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" style="letter-spacing:0.05em">
-            </div>
-            <p class="adm-modal__error" id="ghTokenError"></p>
-            <button class="adm-modal__btn" id="ghTokenSubmit">Connect &amp; Save</button>
-            <p style="font-size:0.72rem;color:#9a9a9a;margin-top:12px;text-align:center">Token is stored only on this device. Never visible publicly.</p>
+
+            <input type="password" id="ghTokenInput"
+              style="width:100%;padding:13px 16px;font-size:.95rem;border:1.5px solid rgba(0,0,0,.12);
+                     outline:none;background:#f7f5f0;box-sizing:border-box;margin-bottom:8px;
+                     font-family:monospace;letter-spacing:.04em"
+              placeholder="ghp_xxxxxxxxxxxxxxxx" autocomplete="off">
+
+            <p id="ghTokenError" style="font-size:.76rem;color:#c45c5c;min-height:18px;margin-bottom:12px"></p>
+
+            <button id="ghTokenSubmit"
+              style="width:100%;padding:14px;background:#c9a96e;color:#fff;border:none;
+                     font-family:Inter,sans-serif;font-size:.78rem;font-weight:500;
+                     letter-spacing:.16em;text-transform:uppercase;cursor:pointer">
+              Connect &amp; Save
+            </button>
+            <p style="font-size:.7rem;color:#9a9a9a;margin-top:12px;text-align:center">
+              Stored only on this device. Never visible to visitors.
+            </p>
           </div>
         `;
         document.body.appendChild(modal);
