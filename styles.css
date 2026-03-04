@@ -1795,3 +1795,31 @@ body.admin-mode {
   border: 2px dashed rgba(201, 169, 110, 0.4);
   background: rgba(201, 169, 110, 0.02);
 }
+/* --- GitHub Token Setup Modal ---*/
+.adm-gh-box {
+  max-width: 480px;
+  text-align: left;
+}
+
+.adm-gh-steps {
+  list-style: decimal;
+  padding-left: 20px;
+  margin-bottom: 24px;
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+  line-height: 2;
+}
+
+.adm-gh-steps strong {
+  color: var(--color-primary);
+}
+
+.adm-gh-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.adm-gh-link:hover {
+  color: var(--color-accent-hover);
+}

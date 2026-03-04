@@ -501,70 +501,236 @@
     }
 
     /* ========================================================
-       10. CONTEXT MENU (right-click on section)
+       10. CONTEXT MENU
        ======================================================== */
-    function wireContextMenu() {
-        // We don't use a context menu — section controls are inline buttons
+    function wireContextMenu() { /* section controls are inline buttons */ }
+
+    /* ========================================================
+       11. GITHUB CONFIG & TOKEN
+       ======================================================== */
+    const GH = {
+        owner: 'blcbusinesses-coder',
+        repo: 'dads-website',
+        file: 'index.html',
+        branch: 'main',
+        tokenKey: 'kl_gh_token'
+    };
+
+    function getGitHubToken() {
+        try { return localStorage.getItem(GH.tokenKey) || ''; } catch (e) { return ''; }
+    }
+    function storeGitHubToken(token) {
+        try { localStorage.setItem(GH.tokenKey, token.trim()); } catch (e) { }
+    }
+    function clearGitHubToken() {
+        try { localStorage.removeItem(GH.tokenKey); } catch (e) { }
     }
 
     /* ========================================================
-       11. SAVE CHANGES — persists to localStorage
+       12. SAVE CHANGES — pushes to GitHub + localStorage draft
        ======================================================== */
     function saveChanges() {
+        const token = getGitHubToken();
+        if (!token) {
+            showTokenSetupModal(() => saveChanges()); // ask for token, then retry
+            return;
+        }
+        doSave(token);
+    }
+
+    async function doSave(token) {
         const btn = document.getElementById('adminSaveBtn');
         const label = document.getElementById('adminSaveBtnLabel');
 
         btn.disabled = true;
-        label.textContent = 'Saving…';
+        label.textContent = 'Pushing to GitHub…';
 
-        // Build a clean snapshot of the page content
-        const snapshot = buildContentSnapshot();
+        // 1. Build clean full HTML string
+        const fullHTML = buildFullHTML();
 
-        // Persist to localStorage so it auto-loads next visit
+        // 2. Also save a local draft so admin's own machine shows edits instantly
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(buildContentSnapshot())); } catch (e) { }
+
+        // 3. Push to GitHub via Contents API
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-        } catch (e) {
-            console.error('Save failed — localStorage error:', e);
-            showToast('⚠ Save failed. Your browser may be blocking localStorage.');
-            btn.disabled = false;
-            label.textContent = 'Save Changes';
-            return;
-        }
+            const apiBase = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.file}`;
+            const headers = {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            };
 
-        hasUnsavedChanges = false;
+            // Get current file SHA (required for update)
+            const getRes = await fetch(`${apiBase}?ref=${GH.branch}`, { headers });
+            if (!getRes.ok) {
+                const err = await getRes.json();
+                throw new Error(err.message || `GitHub GET failed: ${getRes.status}`);
+            }
+            const { sha } = await getRes.json();
 
-        setTimeout(() => {
-            label.textContent = 'Saved ✓';
+            // Encode content as base64
+            const encoded = btoa(unescape(encodeURIComponent(fullHTML)));
+
+            // Commit the updated file
+            const putRes = await fetch(apiBase, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({
+                    message: 'Admin: update site content',
+                    content: encoded,
+                    sha,
+                    branch: GH.branch
+                })
+            });
+
+            if (!putRes.ok) {
+                const err = await putRes.json();
+                // Token might be wrong — clear it so next save re-prompts
+                if (putRes.status === 401 || putRes.status === 403) {
+                    clearGitHubToken();
+                    throw new Error('GitHub token is invalid or expired. Please re-enter it next save.');
+                }
+                throw new Error(err.message || `GitHub PUT failed: ${putRes.status}`);
+            }
+
+            // Success!
+            hasUnsavedChanges = false;
+            label.textContent = 'Saved ✓  Live in ~60s';
             btn.style.background = '#2d6a4f';
-            showToast('Changes saved! They will appear automatically every time you open this page.');
+            showToast('✓ Saved to GitHub! Changes will be live on the website in about 60 seconds.');
             setTimeout(() => {
                 label.textContent = 'Save Changes';
                 btn.style.background = '';
                 btn.disabled = false;
-            }, 3000);
-        }, 400);
+            }, 4000);
+
+        } catch (err) {
+            console.error('GitHub save error:', err);
+            btn.style.background = '#c45c5c';
+            label.textContent = 'Save Failed';
+            showToast(`⚠ ${err.message}`);
+            setTimeout(() => {
+                label.textContent = 'Save Changes';
+                btn.style.background = '';
+                btn.disabled = false;
+            }, 4000);
+        }
     }
 
-    /* Build a JSON snapshot: { sectionId: innerHTML, ... }
-       Captures each named section + the footer + nav logo */
+    /* Build the complete, clean index.html string to push to GitHub */
+    function buildFullHTML() {
+        const bodyClone = document.body.cloneNode(true);
+        // Strip all admin UI
+        ['#adminToolbar', '#adminLoginModal', '#adminImageUpload',
+            '#adminAddSectionDialog', '#adminGitHubModal', '.adm-toast']
+            .forEach(sel => bodyClone.querySelectorAll(sel).forEach(el => el.remove()));
+        bodyClone.querySelectorAll('.adm-section-delete,.adm-section-add').forEach(el => el.remove());
+        // Unwrap image wrappers
+        bodyClone.querySelectorAll('.adm-img-wrap').forEach(wrapper => {
+            const img = wrapper.querySelector('img');
+            if (img) wrapper.parentElement.insertBefore(img, wrapper);
+            wrapper.remove();
+        });
+        // Strip contenteditable and admin classes
+        bodyClone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        bodyClone.querySelectorAll('.adm-editable,.adm-editable--focused,.adm-img-editable,.adm-new-section')
+            .forEach(el => el.classList.remove('adm-editable', 'adm-editable--focused', 'adm-img-editable', 'adm-new-section'));
+        bodyClone.classList.remove('admin-mode');
+
+        const headHTML = document.head.innerHTML;
+        return `<!DOCTYPE html>\n<html lang="en">\n<head>\n${headHTML}\n</head>\n<body>\n${bodyClone.innerHTML}\n  <script src="script.js"><\/script>\n  <script src="admin.js"><\/script>\n</body>\n</html>`;
+    }
+
+    /* Export a local download (secondary action) */
+    function exportHTML() {
+        const html = buildFullHTML();
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'index.html'; a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('HTML exported!');
+    }
+
+    /* ========================================================
+       13. GITHUB TOKEN SETUP MODAL
+       ======================================================== */
+    function showTokenSetupModal(onSuccess) {
+        // Remove existing if any
+        const existing = document.getElementById('adminGitHubModal');
+        if (existing) existing.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'adminGitHubModal';
+        modal.innerHTML = `
+          <div class="adm-modal__backdrop" id="ghModalBackdrop"></div>
+          <div class="adm-modal__box adm-gh-box">
+            <button class="adm-modal__close" id="ghModalClose">✕</button>
+            <div class="adm-modal__logo">
+              <span class="adm-modal__logo-name">GitHub Setup</span>
+              <span class="adm-modal__logo-tagline">One-time connection</span>
+            </div>
+            <h2 class="adm-modal__title">Connect to GitHub</h2>
+            <p class="adm-modal__hint" style="max-width:100%">
+              To save changes for <strong>everyone</strong>, this site needs a GitHub token to push updates to your repository.
+            </p>
+            <ol class="adm-gh-steps">
+              <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" class="adm-gh-link">github.com/settings/tokens/new</a></li>
+              <li>Name it <strong>Dad Website</strong></li>
+              <li>Check the <strong>repo</strong> scope</li>
+              <li>Click <strong>Generate token</strong>, then copy it</li>
+            </ol>
+            <div class="adm-modal__field">
+              <input type="password" id="ghTokenInput" class="adm-modal__input"
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" style="letter-spacing:0.05em">
+            </div>
+            <p class="adm-modal__error" id="ghTokenError"></p>
+            <button class="adm-modal__btn" id="ghTokenSubmit">Connect &amp; Save</button>
+            <p style="font-size:0.72rem;color:#9a9a9a;margin-top:12px;text-align:center">Token is stored only on this device. Never visible publicly.</p>
+          </div>
+        `;
+        document.body.appendChild(modal);
+
+        const close = () => modal.remove();
+        document.getElementById('ghModalClose').addEventListener('click', close);
+        document.getElementById('ghModalBackdrop').addEventListener('click', close);
+
+        document.getElementById('ghTokenSubmit').addEventListener('click', () => {
+            const token = document.getElementById('ghTokenInput').value.trim();
+            if (!token || !token.startsWith('gh')) {
+                const err = document.getElementById('ghTokenError');
+                err.textContent = 'Please paste a valid GitHub token (starts with "gh").';
+                return;
+            }
+            storeGitHubToken(token);
+            modal.remove();
+            if (onSuccess) onSuccess();
+        });
+
+        document.getElementById('ghTokenInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') document.getElementById('ghTokenSubmit').click();
+        });
+
+        setTimeout(() => document.getElementById('ghTokenInput').focus(), 50);
+    }
+
+    /* ========================================================
+       14. APPLY SAVED EDITS ON LOAD
+       ======================================================== */
+
+    /* Build a JSON snapshot of current page content for localStorage draft */
     function buildContentSnapshot() {
         const snapshot = {};
-
-        // Capture each section by ID
         ['hero', 'about', 'services', 'approach', 'safety', 'contact'].forEach(id => {
             const el = document.getElementById(id);
             if (el) snapshot[id] = cleanHTML(el.innerHTML);
         });
-
-        // Capture footer inner content
         const footer = document.querySelector('footer');
         if (footer) snapshot['__footer__'] = cleanHTML(footer.innerHTML);
-
-        // Capture nav logo text (in case it was edited)
         const navLogo = document.querySelector('.nav__logo');
         if (navLogo) snapshot['__nav_logo__'] = navLogo.innerHTML;
-
-        // Capture any custom sections added during this session
         document.querySelectorAll('section[id^="custom-section-"]').forEach(sec => {
             snapshot[sec.id] = cleanHTML(sec.innerHTML);
             snapshot['__custom_order__'] = snapshot['__custom_order__'] || [];
@@ -573,28 +739,22 @@
                 afterId: sec.previousElementSibling ? sec.previousElementSibling.id || '' : ''
             });
         });
-
-        // Track which sections were deleted
-        const allOriginalIds = ['hero', 'about', 'services', 'approach', 'safety', 'contact'];
-        const deletedIds = allOriginalIds.filter(id => !document.getElementById(id));
+        const deletedIds = ['hero', 'about', 'services', 'approach', 'safety', 'contact']
+            .filter(id => !document.getElementById(id));
         if (deletedIds.length) snapshot['__deleted__'] = deletedIds;
-
         return snapshot;
     }
 
-    /* Strip admin-only classes/attributes from an HTML string */
+    /* Strip all admin-only markup from an innerHTML string */
     function cleanHTML(html) {
         const div = document.createElement('div');
         div.innerHTML = html;
-        // Remove admin controls
-        div.querySelectorAll('.adm-section-delete, .adm-section-add, .adm-img-overlay, .adm-img-wrap > .adm-img-overlay').forEach(el => el.remove());
-        // Unwrap image wrappers
+        div.querySelectorAll('.adm-section-delete,.adm-section-add,.adm-img-overlay').forEach(el => el.remove());
         div.querySelectorAll('.adm-img-wrap').forEach(wrapper => {
             const img = wrapper.querySelector('img');
             if (img) wrapper.parentElement.insertBefore(img, wrapper);
             wrapper.remove();
         });
-        // Strip editable markers
         div.querySelectorAll('[contenteditable]').forEach(el => {
             el.removeAttribute('contenteditable');
             el.classList.remove('adm-editable', 'adm-editable--focused');
@@ -604,90 +764,6 @@
         return div.innerHTML;
     }
 
-    /* Export a full HTML file download (secondary action) */
-    function exportHTML() {
-        const snapshot = buildContentSnapshot();
-        // Temporarily apply clean snapshot to build the body
-        const bodyClone = document.body.cloneNode(true);
-        ['#adminToolbar', '#adminLoginModal', '#adminImageUpload', '#adminAddSectionDialog', '.adm-toast']
-            .forEach(sel => bodyClone.querySelectorAll(sel).forEach(el => el.remove()));
-        bodyClone.querySelectorAll('.adm-section-delete,.adm-section-add').forEach(el => el.remove());
-        bodyClone.querySelectorAll('.adm-img-wrap').forEach(wrapper => {
-            const img = wrapper.querySelector('img');
-            if (img) wrapper.parentElement.insertBefore(img, wrapper);
-            wrapper.remove();
-        });
-        bodyClone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-        bodyClone.querySelectorAll('.adm-editable,.adm-editable--focused,.adm-img-editable,.adm-new-section,.admin-mode')
-            .forEach(el => el.classList.remove('adm-editable', 'adm-editable--focused', 'adm-img-editable', 'adm-new-section'));
-        bodyClone.classList.remove('admin-mode');
-
-        const fullHTML = `<!DOCTYPE html>\n<html lang="en">\n<head>${document.head.innerHTML}\n</head>\n<body>\n${bodyClone.innerHTML}\n  <script src="script.js"><\/script>\n  <script src="admin.js"><\/script>\n</body>\n</html>`;
-        const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'index.html'; a.style.display = 'none';
-        document.body.appendChild(a); a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('HTML exported! Replace your index.html file with the downloaded version.');
-    }
-
-    function captureBodySnapshot() {
-        // Clone body, strip all admin UI elements from clone
-        const clone = document.body.cloneNode(true);
-        ['#adminToolbar', '#adminLoginModal', '#adminImageUpload', '#adminAddSectionDialog',
-            '#adminContextMenu', '.adm-section-delete', '.adm-section-add', '.adm-toast']
-            .forEach(sel => {
-                clone.querySelectorAll(sel).forEach(el => el.remove());
-            });
-        // Unwrap adm-img-wrap divs (move img back, remove wrapper+overlay)
-        clone.querySelectorAll('.adm-img-wrap').forEach(wrapper => {
-            const img = wrapper.querySelector('img');
-            if (img) {
-                wrapper.parentElement.insertBefore(img, wrapper);
-            }
-            wrapper.remove();
-        });
-        // Remove contenteditable attributes
-        clone.querySelectorAll('[contenteditable]').forEach(el => {
-            el.removeAttribute('contenteditable');
-            el.classList.remove('adm-editable', 'adm-editable--focused');
-        });
-        // Remove admin-mode class
-        clone.classList.remove('admin-mode');
-        // Remove admin img classes
-        clone.querySelectorAll('.adm-img-editable').forEach(el => {
-            el.classList.remove('adm-img-editable');
-        });
-        // Remove admin-new-section marker
-        clone.querySelectorAll('.adm-new-section').forEach(el => {
-            el.classList.remove('adm-new-section');
-        });
-        return clone.innerHTML;
-    }
-
-    function generateHTMLDownload(bodySnapshot) {
-        // Build a complete HTML document
-        const doctype = '<!DOCTYPE html>';
-        const headContent = document.head.innerHTML;
-        const fullHTML = `${doctype}\n<html lang="en">\n<head>${headContent}\n</head>\n<body>\n${bodySnapshot}\n  <script src="script.js"><\/script>\n  <script src="admin.js"><\/script>\n</body>\n</html>`;
-
-        const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'index.html';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    /* ========================================================
-       12. APPLY SAVED EDITS ON LOAD
-       ======================================================== */
     function applySavedEdits() {
         let snapshot;
         try {
