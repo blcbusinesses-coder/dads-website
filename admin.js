@@ -7,7 +7,7 @@
     'use strict';
 
     /* ─── Config ─────────────────────────────── */
-    const ADMIN_CODE = '123456';
+    const ADMIN_CODE = 'Klowe7890!';
     const STORAGE_KEY = 'kl_admin_edits';
 
     /* ─── State ──────────────────────────────── */
