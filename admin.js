@@ -665,7 +665,10 @@
         const bodyClone = document.body.cloneNode(true);
         // Strip all admin UI
         ['#adminToolbar', '#adminLoginModal', '#adminImageUpload',
-            '#adminAddSectionDialog', '#adminGitHubModal', '.adm-toast']
+            '#adminAddSectionDialog', '#adminGitHubModal', '.adm-toast',
+            '[id^="c206c13f"]', '[data-gg-privacy-banner-anchor]',
+            '[data-gg-beacon-banner-anchor]', '[data-gg-announcements-anchor]',
+            '#volume-booster-visusalizer', '.audio-output', '.To7Rzi0O1nlffaEHzn94']
             .forEach(sel => bodyClone.querySelectorAll(sel).forEach(el => el.remove()));
         bodyClone.querySelectorAll('.adm-section-delete,.adm-section-add').forEach(el => el.remove());
         // Unwrap image wrappers
@@ -679,6 +682,9 @@
         bodyClone.querySelectorAll('.adm-editable,.adm-editable--focused,.adm-img-editable,.adm-new-section')
             .forEach(el => el.classList.remove('adm-editable', 'adm-editable--focused', 'adm-img-editable', 'adm-new-section'));
         bodyClone.classList.remove('admin-mode');
+
+        // Remove script tags so they don't get duplicated
+        bodyClone.querySelectorAll('script').forEach(el => el.remove());
 
         const headHTML = document.head.innerHTML;
         return `<!DOCTYPE html>\n<html lang="en">\n<head>\n${headHTML}\n</head>\n<body>\n${bodyClone.innerHTML}\n  <script src="script.js"><\/script>\n  <script src="admin.js"><\/script>\n</body>\n</html>`;
