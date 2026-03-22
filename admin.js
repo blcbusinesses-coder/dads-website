@@ -19,6 +19,13 @@
 
     /* ─── On DOM ready ──────────────────────── */
     document.addEventListener('DOMContentLoaded', () => {
+        // Failsafe format to wipe local storage if it's causing a white screen
+        if (window.location.search.includes('resetadmin')) {
+            localStorage.removeItem(STORAGE_KEY);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            alert('Admin draft cleared from browser.');
+        }
+
         applySavedEdits();
         buildLoginModal();
         buildAdminToolbar();
@@ -111,7 +118,11 @@
         bar.innerHTML = `
       <div class="adm-bar__left">
         <span class="adm-bar__badge">✎ Admin Mode</span>
-        <span class="adm-bar__tip">Click any text to edit • Click images to replace • Hover sections for controls</span>
+        <span class="adm-bar__tip">Click any text to edit • Click images to replace</span>
+        <span id="adminLinkEditor" style="display:none; margin-left:15px; align-items:center; gap:8px;">
+           <span style="color:#c9a96e; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; font-weight:bold;">Link URL:</span>
+           <input type="text" id="adminLinkInput" style="padding:4px 8px; font-size:0.8rem; border:1px solid rgba(255,255,255,0.2); background:rgba(0,0,0,0.2); color:#fff; border-radius:3px; outline:none; width:220px;" placeholder="https://... or #section" />
+        </span>
       </div>
       <div class="adm-bar__right">
         <button class="adm-bar__btn adm-bar__btn--export" id="adminExportBtn" title="Download a copy of the HTML file">⬇ Export HTML</button>
@@ -211,6 +222,9 @@
         '.footer__copyright',
         '.nav__logo-name',
         '.nav__logo-tagline',
+        '.btn',
+        '.service-card__link',
+        '.footer__nav-group a'
     ];
 
     function enableTextEditing() {
@@ -223,8 +237,13 @@
                 el.addEventListener('input', markChanged);
                 el.addEventListener('focus', onEditableFocus);
                 el.addEventListener('blur', onEditableBlur);
+                if (el.tagName === 'A') {
+                    el.addEventListener('click', preventLinkNavigation);
+                }
             });
         });
+        document.addEventListener('focusin', handleGlobalFocusIn);
+        document.addEventListener('click', handleGlobalClick);
     }
 
     function disableTextEditing() {
@@ -234,15 +253,71 @@
             el.removeEventListener('input', markChanged);
             el.removeEventListener('focus', onEditableFocus);
             el.removeEventListener('blur', onEditableBlur);
+            if (el.tagName === 'A') {
+                el.removeEventListener('click', preventLinkNavigation);
+            }
         });
+        document.removeEventListener('focusin', handleGlobalFocusIn);
+        document.removeEventListener('click', handleGlobalClick);
+        hideLinkToolbar();
+    }
+
+    function preventLinkNavigation(e) {
+        if (isAdmin) e.preventDefault();
     }
 
     function onEditableFocus(e) {
         e.target.classList.add('adm-editable--focused');
+        const linkEl = e.target.tagName === 'A' ? e.target : e.target.closest('a.adm-editable');
+        if (linkEl) {
+            showLinkToolbar(linkEl);
+        }
     }
 
     function onEditableBlur(e) {
         e.target.classList.remove('adm-editable--focused');
+    }
+
+    function handleGlobalFocusIn(e) {
+        if (!isAdmin) return;
+        const isEditableLink = e.target.tagName === 'A' && e.target.classList.contains('adm-editable');
+        const isInsideLinkEditor = e.target.closest('#adminLinkEditor');
+        
+        if (!isEditableLink && !isInsideLinkEditor) {
+            hideLinkToolbar();
+        }
+    }
+
+    function handleGlobalClick(e) {
+        if (!isAdmin) return;
+        const isEditableLink = e.target.closest('a.adm-editable');
+        const isInsideLinkEditor = e.target.closest('#adminLinkEditor');
+        
+        if (!isEditableLink && !isInsideLinkEditor && document.activeElement.tagName !== 'A') {
+            hideLinkToolbar();
+        }
+    }
+
+    function showLinkToolbar(linkEl) {
+        const linkEditor = document.getElementById('adminLinkEditor');
+        const linkInput = document.getElementById('adminLinkInput');
+        if (linkEditor && linkInput) {
+            linkEditor.style.display = 'inline-flex';
+            linkInput.value = linkEl.getAttribute('href') || '';
+            linkInput.oninput = () => {
+                const val = linkInput.value.trim();
+                if (val) linkEl.setAttribute('href', val);
+                else linkEl.removeAttribute('href');
+                markChanged();
+            };
+        }
+    }
+
+    function hideLinkToolbar() {
+        const linkEditor = document.getElementById('adminLinkEditor');
+        if (linkEditor) {
+            linkEditor.style.display = 'none';
+        }
     }
 
     /* ========================================================
@@ -635,8 +710,9 @@
                 throw new Error(err.message || `GitHub commit failed (${putRes.status})`);
             }
 
-            // Success!
+            // Success! Clear the local draft — GitHub is now the source of truth.
             hasUnsavedChanges = false;
+            try { localStorage.removeItem(STORAGE_KEY); } catch (e) { }
             label.textContent = 'Saved ✓  Live in ~60s';
             btn.style.background = '#2d6a4f';
             showToast('✓ Saved! Changes will be live on the website in about 60 seconds.');
