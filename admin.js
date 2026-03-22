@@ -686,7 +686,13 @@
                 else doc.querySelector('footer')?.insertAdjacentElement('beforebegin', sec);
             });
 
-            // Step 4: Serialize the surgically-updated clean document
+            // Step 4: Safety guard — abort if the document looks empty/corrupted
+            const bodyLen = doc.body ? doc.body.innerHTML.trim().length : 0;
+            if (bodyLen < 5000) {
+                throw new Error('Save aborted: the generated HTML looks empty or corrupted. Please refresh the page and try again.');
+            }
+
+            // Step 5: Serialize the surgically-updated clean document
             const updatedHTML = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
 
             // Step 5: Base64-encode and commit back to GitHub
